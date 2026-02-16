@@ -1,0 +1,635 @@
+# シェルスクリプト
+## 1.定義づけ
+### 基本形
+```bash
+[root@ip-172-31-34-128 ~]# SAKANA=maguro
+```
+```bash
+[root@ip-172-31-34-128 ~]# echo $SAKANA
+maguro
+
+[root@ip-172-31-34-128 ~]# echo SAKANA
+SAKANA
+
+※「＄」をつけるのが大事！
+```
+### 日付
+```bash
+[root@ip-172-31-34-128 ~]# DATE="2026_02_05"
+
+※「=」の間にスペース開けないこと！！！
+
+[root@ip-172-31-34-128 ~]# echo $DATE
+2026_02_05
+```
+### 変数に付け加えたいとき
+```bash
+[root@ip-172-31-34-128 ~]# echo $DATE_Thu
+
+[root@ip-172-31-34-128 ~]#
+
+※｛｝を使って“明示的”に指定する
+[root@ip-172-31-34-128 ~]# echo ${DATE}_Thu
+2026_02_05_Thu
+```
+### メタ文字を普通の文字とみなしてもらう
+```bash
+そのままだと2つのファイルができる
+
+[root@ip-172-31-34-128 ~]# touch SABA MISO
+[root@ip-172-31-34-128 ~]# ls -l
+total 0
+-rw-r--r--. 1 root root 0 Feb  5 01:40  MISO
+-rw-r--r--. 1 root root 0 Feb  5 01:40  SABA
+```
+```bash
+空白を文字と認識してもらうために「""」をつける
+[root@ip-172-31-34-128 ~]# touch "SABA MISO"
+-rw-r--r--. 1 root root 0 Feb  5 01:41 'SABA MISO'
+```
+
+## 2.シェルスクリプト
+### 固定の構文先に書いておく！！！
+### 基本形
+①ファイルを作って下記を書き込む
+```bash
+[root@ip-172-31-34-128 ~]# vi hello.sh
+#!/bin/sh
+echo "Hello world"
+```
+※#!/bin/shは絶対必要。おまもり。
+
+→詳しく言うと、どこで実行するかを示している。今回は/bin/shで実行。
+
+②以下２つの方法で確認可能
+~~~
+[root@ip-172-31-34-128 ~]# sh hello.sh
+Hello world
+~~~
+~~~
+権限を持たせると./でもOK
+[root@ip-172-31-34-128 ~]# chmod u+x hello.sh
+[root@ip-172-31-34-128 ~]# ./hello.sh
+Hello world
+~~~
+
+### 対話形式－相手に文字を入力させる－
+```bash
+[root@ip-172-31-34-128 ~]# vi read.sh
+#!/bin/sh
+echo "キーを入力してください"
+read INPUTKEY
+echo "あなたは¥"$INPUTKEY¥"と入力しました。"
+```
+※INPUTKEYが自由に記入してもらった部分になる
+~~~
+[root@ip-172-31-34-128 ~]# chmod u+x read.sh
+[root@ip-172-31-34-128 ~]# ./read.sh
+キーを入力してください
+pass
+あなたは¥pass¥と入力しました。
+~~~
+
+### スクリプトの引数の扱い
+~~~
+#!/bin/sh
+echo "3日間の天気予想"
+echo "1日目は$1"
+echo "2日目は$2"
+echo "3日目は$3"
+~~~
+```bash
+[root@ip-172-31-34-128 ~]# ./starter.sh hare kumori ame
+3日間の天気予想
+1日目はhare
+2日目はkumori
+3日目はame
+
+※うちなおすと内容が変わる
+
+[root@ip-172-31-34-128 ~]# ./starter.sh 晴れ 雪 くもり
+3日間の天気予想
+1日目は晴れ
+2日目は雪
+3日目はくもり
+
+↓絵文字も行けた！！！
+
+[root@ip-172-31-34-128 ~]# ./starter.sh 🌤 ⛄ 🌧
+3日間の天気予想
+1日目は🌤
+2日目は⛄
+3日目は🌧
+```
+
+### コマンドの終了ステータス
+~~~
+ログに残すから、処理が完了したことがわかるようにする
+
+→.shのファルダの最後に「echo "最後まで実行しました"」とか入れるのが一番楽
+~~~
+
+## 3. 条件分岐
+### if~then~fi（もし○○ならこれ！）
+~~~
+#!/bin/sh
+if [ `date +%w` = 4 ]  　　　　　　　もし今日が木曜だったら
+then
+        echo "明日は金曜日です"　　　　こう書いてね
+fi
+
+[ec2-user@ip-172-31-34-128 ~]$ sh date.sh
+明日は金曜日です
+~~~
+※echoの前は空けなくてもうまくいくけど、実務の時に見にくい...
+
+### if~then~else~fi（もし○○ならこれで、○○じゃなかったらこれ！）
+~~~
+#!/bin/sh
+if [ `date +%w` = 4 ]  　　　　　　　もし今日が木曜だったら
+then
+        echo "明日は金曜日です"　　　　こう書いてね
+elce
+        echo "明日は金曜日でないです"　木曜じゃなかったらこっちを書いてね
+fi
+~~~
+
+### if~then~elif~else~fi（もし○○ならこれ、△△ならこれ、それ以外ならこれ！）
+~~~
+#!/bin/sh
+if [ `date +%w` = 5 ]　　　　　　　もし金曜日なら
+then
+        echo "明日は休日です"　　　　こう書いてね
+elif [ `date +%w` = 6 ]　　　　　　もし土曜なら
+then
+        echo "明日も休日です"　　　　こう書いてね
+else
+        echo "明日は出勤です"　　　　それ以外ならこう書いてね
+fi
+~~~
+
+## case文（この範囲ならこう書いて、この範囲ならこれ書いて！）
+~~~
+#!/bin/sh
+case $1 in
+[a-z])
+        echo "半角小文字"
+;;
+[1-9])
+        echo "数字"
+;;
+*)
+        echo "それ以外"
+;;
+esac
+~~~
+~~~
+[root@ip-172-31-34-128 ~]# sh case.sh 1
+数字
+[root@ip-172-31-34-128 ~]# sh case.sh a
+半角小文字
+~~~
+~~~
+
+echo "yes / no / cancelのどれかで入力してください"
+read ANSWER
+
+とかつけることもある
+~~~
+
+## 繰り返し処理（この値が終わるまで繰り返して！）
+~~~
+#!/bin/sh
+
+for test in test1 test2 test3
+do
+        touch $test
+done
+
+---------------------------------------------------------------------
+
+[root@ip-172-31-34-128 ~]# sh for.sh
+[root@ip-172-31-34-128 ~]# ls
+ MISO  'SABA MISO'   confirm_case.sh   hello.sh   starter.sh   test2
+ SABA   case.sh      for.sh            read.sh    test1        test3
+~~~
+### 考え方
+~~~
+for 変数 in 値1 値2 値3 
+
+testという変数を使ってfor(繰り返し処理)をするんだ
+~~~
+~~~
+Q. 何回繰り返すの？　　A. 値の数だけ(今回は3回)
+
+→testという変数にtest1が入る
+→done
+→for(test2発見)
+→doの処理に行く
+→done
+→for(test3発見)
+→do
+→done
+→for(値おしまい)
+→終了
+~~~
+### 演習
+~~~
+#!/bin/sh
+
+for COUNT in 1 2 3 4 5
+do
+        echo $COUNT　　($nのがきれいかも)
+done
+~~~
+~~~
+[ec2-user@ip-172-31-34-128 ~]$ sh count_5.sh
+1
+2
+3
+4
+5
+~~~
+
+## while文（失敗するまでやって！）
+~~~
+#!/bin/sh
+
+while rm test.txt
+do
+        echo "削除完了"
+done
+~~~
+~~~
+・break　ループを抜ける
+・exit　スクリプト事態終了
+・continue　ループは抜ける、その週だけスキップ
+~~~
+~~~
+【よく使う形】
+
+・done < /etc/passwd　このファイルを読む
+　　while read LINE
+　　do
+    　　...
+　　done < ファイル名
+
+・カウント処理・リトライ処理・待機処理
+　　i=1
+　　while [ "$i" -le N ]
+　　do
+    　　    処理
+        　　i=$((i+1))
+　　done
+~~~
+
+# 考え方
+~~~
+やりたいことを日本語で書いてみる
+~~~
+### 演習１
+~~~
+【やりたいこと】
+
+Apacheの設定ファイルのバックアップ
+
+【日本語から処理に変換していく】
+
+cp /etc/httpd/conf/httpd.conf /etc/httpd/conf/httpd.conf.20260205173200.bak
+
+【指定】
+・バックアップ元を変数にしたい
+→　ORGDIR=/etc/httpd/conf/httpd.conf
+　 cp $ORGDIR /etc/httpd/conf/httpd.conf.20260205173200.bak
+
+・バックアップ先directoryを変数で定義
+→　BACKDIR=/etc/httpd/conf/
+　 cp ${ORGDIR} ${BACKDIR}httpd.conf.20260205173200.bak
+
+・日付を自動取得する変数を作成
+DATE=`date +$Y%m%d%H%M%S`
+cp ${ORGDIR} ${BACKDIR}httpd.conf.${DATE}.bak
+
+【答え】
+ORGDIR=/etc/httpd/conf/httpd.conf
+BACKDIR=/etc/httpd/conf/
+DATE=`date +$Y%m%d%H%M%S`
+echo "バックアップ開始"
+cp ${ORGDIR} ${BACKDIR}httpd.conf.${DATE}.bak
+echo "バックアップ終了"
+~~~
+~~~
+#!/bin/sh
+ORG=/etc/httpd/conf/httpd.conf
+BAK=/home/ec2-user/orihara/backup
+DATE=`date +%Y%m%d%H%M`
+
+echo "バックアップ開始"
+[ -d ${BAK}httpd.conf.${DATE}.bak ] || mkdir -p ${BAK}
+cp ${ORG} ${BAK}/httpd.conf.${DATE}.bak
+echo "バックアップ終了"
+~~~
+### 演習２
+~~~
+なんにでも使えることを汎用性が高いという
+~~~
+~~~
+【やりたいこと】
+
+どんなファイルでもバックアップが取れる処理を書く
+
+・引数で値を指定する必要があるということは...
+〈実行コマンド〉
+sh shell2.sh バックアップ元ファイル　バックアップ先ディレクトリ
+⇒sh shell2.sh /etc/named.conf /home/ec2-user/orihara/backup/
+
+cp コピー元　コピー先
+cp $1 $2ファイル名　　←　　これもcpはファイルしか作れないから別途必要になる！
+cp $1 $2named.conf
+~~~
+~~~
+【最初に考えたやつ】
+
+#!/bin/sh
+ORGDIR=$1
+BACKDIR=$2
+DATE=`date +%Y%m%d%H%M%S`
+
+echo "バックアップ開始"
+cp ${1} ${2}.${DATE}.bak
+echo "バックアップ終了"
+~~~
+~~~
+【チャッピーに聞いてみたやつ】
+
+#!/bin/sh
+ORG_FILE=$1
+BAK_DIR=$2
+DATE=`date +%Y%m%d%H%M`
+
+echo "バックアップ開始"
+[ -d ${BAK_DIR} ] || mkdir -p ${BAK_DIR}
+cp ${ORG_FILE} ${BAK_DIR}/$(basename ${ORG_FILE}).${DATE}.bak
+echo "バックアップ終了"
+~~~
+~~~
+【横山さんのやつ】
+
+
+〈考え方〉
+sh shell2.sh バックアップ元ファイル　バックアップ先ディレクトリ
+⇒sh shell2.sh /etc/named.conf /home/ec2-user/orihara/backup/
+
+cp コピー元　コピー先
+cp $1 $2ファイル名　　←　　これもcpはファイルしか作れないから別途必要になる！
+cp $1 $2named.conf
+
+⇒直にnamed.confと書くと汎用性がなくなってしまう
+⇒汎用性＝どのファイルでもバックアップが取れるということだから、このままだとnamed.conf専用スクリプトになっちゃう...
+⇒$1に書いてあるコピー元ファイル名だけ抜き出して使用したい
+
+/etc/named.confからnamed.conf からnamed.confを抜き出す方法
+⇒awkコマンドを/で区切り文字にして２列目(一番右)を抜き出せばよさそう
+
+⇒awk -F/`(print $2)`
+２列目に指定すると、/etc/httpd/conf/httpd.confのようなファイルに使えなくなってしまうので、一番右を明示的に指定したい
+⇒awk -F/ `(print $NF)`
+⇒echo $1 | awk -F/ `(print $NF)`    ←　　named.confになる！
+
+→cp $1 $2echo $1 | awk -F/ `(print $NF)`
+→見づらい...
+
+DATE=`date +%Y%m%d%H%M`
+BACKUPFILE=echo $1 | awk -F/ `(print $NF)`
+cp $1 $2${BACKUPFILE}.${DATE}.bak
+
+↓これでも見にくい...
+変数を使いたいなぁ
+
+
+
+〈最終形〉
+
+ORGFILE=$1
+BACKUPFILE=$2
+DATE=`date +%Y%m%d%H%M`
+cp ${ORGFILE} ${BACKUPDIR}${BACKUPFILE}.${DATE}.bak
+
+~~~
+
+
+### 演習３
+~~~
+【最初に考えたやつ】
+
+#!/bin/sh
+
+echo "バックアップ元は？"
+read ORG_FILE
+
+echo "バックアップ先は？"
+read BAK_DIR
+
+BAK_FILE=/etc/named.conf　→　いらない！！！
+※「バックアップ元を」は指定されているファイルの下に作るんじゃなくて、これをバックアップ元にしてバックアップするってこと
+
+DATE=`date +%Y%m%d%H%M`
+echo "バックアップ開始"
+
+[ -d ${BAK_FILE}/${BAK_DIR}.${DATE}.bak ] || mkdir -p ${BAK_FILE}/${BAK_DIR}.${DATE}.bak
+→これも探すのはバックアップ先のディレクトリだけ
+
+cp $1 ${BAK_FILE}/${BAK_DIR}.${DATE}.bak
+echo "\"${BAK_FILE}/${BAK_DIR}.${DATE}.bak\"をバックアップしました"
+~~~
+~~~
+【チャッピーに添削してもらったやつ】
+
+#!/bin/sh
+
+echo "バックアップ元は？"
+read ORG_FILE
+
+echo "バックアップ先は？"
+read BAK_DIR
+
+DATE=`date +%Y%m%d%H%M`
+
+echo "バックアップ開始"
+[ -d "$BAK_DIR" ] || mkdir -p "$BAK_DIR"
+cp ${ORG_FILE} ${BAK_DIR}/$(basename $ORG_FILE).${DATE}.bak
+echo "\"$BAK_DIR/$(basename $ORG_FILE).$DATE.bak\" をバックアップしました"
+~~~
+~~~
+【横山さんのやつ】
+
+実行コマンド　sh shell2.sh 
+
+echo "バックアップファイルを指定してください。"
+read ORGFILE
+echo "バックアップ先ディレクトリを指定してください。"
+read BACKUPDIR
+
+DATE=`date +%Y%n%d`
+BACKUPFILE=`echo $1 | awk -F/ '{print $NF}'`
+cp ${ORGFILE} ${BACKUPDIR}${BACKUPFILE}.${DATE}.bak
+
+echo "${ORGFILE}"をバックアップしました
+
+~~~
+
+### 演習４
+~~~
+【最初のやつ】
+backup.listファイルに記載されたファイル名をバックアップ
+バックアップしたファイルがちゃんとあるか確認
+
+・cp backup.list backup.list.20260206.bak
+・ls backup.list
+
+#!/bin/sh
+
+ORG_FILE=backup.list
+DATE=`date +%Y%m%d%H%M`
+
+echo "バックアップ開始"
+cp ${ORG_FILE} ${ORG_FILE}.${DATE}.bak
+
+if [ -d ${ORG_FILE}.${DATE}.bak ] 　　→　　 [ -f ${ORG_FILE}.${DATE}.bak ] 
+※copyとtouchでできるのはファイル、ディレクトリはmkdirだけ
+
+then
+        echo "バックアップしました"
+else
+        echo "バックアップできませんでした"
+fi
+~~~
+~~~
+【チャッピーに添削してもらったやつ】
+#!/bin/sh
+
+ORG_FILE=backup.list
+DATE=`date +%Y%m%d%H%M`
+
+echo "バックアップ開始"
+cp ${ORG_FILE} ${ORG_FILE}.${DATE}.bak
+
+if [ -f ${ORG_FILE}.${DATE}.bak ] 
+then
+        echo "バックアップしました"
+else
+        echo "バックアップできませんでした"
+fi
+~~~
+~~~
+【横山さんのやつ】
+・backup.listファイル　　記載されたファイル名をバックアップしてくれる仕組み
+⇒ファイルに記載されたファイル名
+　⇒何個もバックアップしたいファイルがありそう
+　　⇒バックアップコマンド(cp)をたくさん実行する必要がある
+　　　⇒for文　or while文
+　　　　⇒ファイルの数だけ何で繰り返す数が決まっているからfor文
+
+for 変数 in 値1　値2　値3
+do
+    繰り返したいコマンド
+done
+----------------------------------------------------------------------------
+
+※1回目のi=/etc/named.conf
+※2回目のi=/etc/httpd/conf/httpd.conf
+
+BACKUPFILE=`echo $1 | awk -F/ '{print $NF}'`
+for i in file1　file2　file3
+do
+    繰り返したいコマンド(cp ${i} /homeec2-user/yokoyama/backup${BACKUPFILE} )
+done
+
+----------------------------------------------------------------------------
+
+⇒バックアップしてくれる仕組み
+　⇒cp コピー元　コピー先
+
+・バックアップしたファイルがちゃんとあるか確認する仕組み
+⇒存在するのか、しないのかチェック
+　⇒存在したらOK、存在しなかったらNGみたいになればいい？
+　　⇒OKとNGに分けなければいけないってことは条件分岐？
+　　　⇒if構文を使えばいい！
+
+
+
+BACKUPFILE=`echo $1 | awk -F/ '{print $NF}'`
+for i in file1　file2　file3
+do
+    cp ${i} /home/ec2-user/yokoyama/backup${BACKUPFILE} 
+
+    if [ -f /home/ec2-user/yokoyama/backup${BACKUPFILE} ]
+    then
+        echo "OK"
+    else
+        echo "NG"
+    fi
+done
+
+----------------------------------------------------------------------------
+
+backup.listの中身がこうなっている
+file1
+file2
+file3
+→cat backup.listの結果
+
+BACKUPFILE=`echo $1 | awk -F/ '{print $NF}'`
+for i in `cat backup.list`
+do
+    cp ${i} /home/ec2-user/yokoyama/backup${BACKUPFILE} 
+
+    if [ -f /home/ec2-user/yokoyama/backup${BACKUPFILE} ]
+    then
+        echo "OK"
+    else
+        echo "NG"
+    fi
+done
+~~~~
+
+~~~
+【模範解答】
+
+DATE=`date +%Y%m%d`
+BACKUPDIR=/home/ec2-user/yokoyama/bakup/
+    for i in `cat bakup.list`
+    BACKUPFILE=`echo ${i} | awk -F/ '{print $NF}'`
+    do
+        echo "${i}のバックアップ開始"
+        cp ${i} ${BACKUPDIR}${BACKUPFILE}
+
+        if [ -e ${BACKUPDIR}${BACKUPFILE}.${DATE}.bak ]
+        then
+            echo "${BACKUPDIR}${BACKUPFILE}.${DATE}.bakがOK"
+        else
+            echo "${BACKUPDIR}${BACKUPFILE}.${DATE}.bakがNG"
+        fi
+    done
+
+
+⇒私はbackup.listの中身をバックアップするだけだと思ってた
+　実際は中に入っているファイル名全てバックアップ取るから、forが必要！！
+~~~
+### 演習５
+~~~
+1回飛ばす
+~~~
+### 演習６
+~~~
+【やりたいこと】
+・3~4を監視する
+・curl -LI 監視したいURL -o /dev/null -w '%{http_code}\n' -s
+
+・ifとforを使うこと
+・監視するサイトはsite.listというファイルを使ってシェルから読み込むこと
+・監視結果があとで見られるようにログを出力する機能をつける
+
+【手順】
+
+~~~
