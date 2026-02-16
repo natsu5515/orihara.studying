@@ -1,0 +1,173 @@
+i# WEBサーバー
+## 1.Apache インストール
+①ルートユーザーに代わる(ec2ユーザーだとインストール権限がない)
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo su -
+[root@ip-172-31-29-201 ~]# dnf install httpd
+```
+```text
+Amazon Linux 2023 Kernel Livepatch repository                                           249 kB/s |  30 kB     00:00
+Dependencies resolved.
+========================================================================================================================
+ Package                         Architecture       Version                               Repository               Size
+========================================================================================================================
+Installing:
+...
+```
+②apache起動
+```bash
+[root@ip-172-31-29-201 ~]# systemctl start httpd
+```
+③apacheの起動とサービスの自動起動設定
+```bash
+[root@ip-172-31-29-201 ~]# systemctl enable httpd
+```
+```text
+Created symlink /etc/systemd/system/multi-user.target.wants/httpd.service → /usr/lib/systemd/system/httpd.service.
+```
+
+↓どっちかで確認
+```bash
+[root@ip-172-31-29-201 ~]# systemctl is-enabled httpd
+enabled
+```
+```bash
+[root@ip-172-31-29-201 ~]# systemctl list-unit-files -t service | grep httpd
+httpd.service                          enabled         disabled
+httpd@.service                         disabled        disabled
+```
+④プロセスとポート番号が存在するか確認
+```bash
+[root@ip-172-31-29-201 ~]# ps -ef | grep httpd | grep -v grep
+```
+```text
+root       25978       1  0 02:22 ?        00:00:00 /usr/sbin/httpd -DFOREGROUND
+apache     25979   25978  0 02:22 ?        00:00:00 /usr/sbin/httpd -DFOREGROUND
+apache     25980   25978  0 02:22 ?        00:00:00 /usr/sbin/httpd -DFOREGROUND
+apache     25991   25978  0 02:22 ?        00:00:00 /usr/sbin/httpd -DFOREGROUND
+apache     26009   25978  0 02:22 ?        00:00:00 /usr/sbin/httpd -DFOREGROUND
+```
+```bash
+[root@ip-172-31-29-201 ~]# netstat -ln | grep 80 | grep -v grep
+```
+```text
+tcp6       0      0 :::80                   :::*                    LISTEN
+udp6       0      0 fe80::58:bcff:fec1::546 :::*
+```
+※都度都度systemctl status httpdで状況を確認する(active見ること)
+
+
+## 2.ブラウザへの書き込み
+・ディレクトリ作って書き込む→ブラウザを更新すると文章書きこまれている
+```bash
+[root@ip-172-31-29-201 ~]# vi /var/www/html/index.html
+```
+
+## 3.アクセスログの確認→下から読んでいく
+```bash
+[root@ip-172-31-29-201 ~]# tail -f /var/log/httpd/access_log
+```
+```text
+118.237.255.201 - - [16/Jan/2026:02:26:44 +0000] "GET / HTTP/1.1" 403 191 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+118.237.255.201 - - [16/Jan/2026:02:26:44 +0000] "GET /favicon.ico HTTP/1.1" 404 236 "http://35.91.179.128/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+118.237.255.201 - - [16/Jan/2026:02:27:37 +0000] "-" 408 - "-" "-"
+```
+↑の118.237.255.201はアクセスした人のIPアドレス
+
+## 演習　Apacheの操作
+web1 http://グローバルIP/yakiniku/harami.htmlにアクセスする
+
+①省略されている部分の中にyakinikuっていうディレクトリをつくる
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo mkdir /var/www/html/yakiniku
+```
+②その中にharami.htmlっていうフォルダを作る
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo touch /var/www/html/yakiniku/harami.html
+```
+③その中に文章を書きこむ
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo vi /var/www/html/yakiniku/harami.html
+```
+
+## 5.ドキュメントルールの変更
+①ドキュメントルールをバックアップして確認
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo cp -a /etc/httpd/conf/httpd.conf /etc/httpd/conf/httpd.conf.0116
+```
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ ls -l /etc/httpd/conf/httpd.conf*
+-rw-r--r--. 1 root root 12532 Dec  5 21:17 /etc/httpd/conf/httpd.conf
+-rw-r--r--. 1 root root 12532 Dec  5 21:17 /etc/httpd/conf/httpd.conf.0116
+```
+②ドキュメントルールの書き換え
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo vi /etc/httpd/conf/httpd.conf
+```
+```text
+DocumentRoot "/home/saba"
+
+#
+# Relax access to content within /var/www.
+#
+<Directory "/home/saba">
+    AllowOverride None
+    # Allow open access:
+    Require all granted
+</Directory>
+```
+※DocumentrootとDirectoryを変える
+
+ディレクトリ作ってからリスタート
+
+## 6.Apacheのメイン設定ファイルを変えることで変更できる
+③aburisa-monからsa-monへとばす
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo vi /etc/httpd/conf.d/redirect.conf
+```
+```text
+'Redirect 301 /aburi-sa-mon http://sa-monのURL
+```
+※Redirect 301 /aburi-sa-mon.html http://a-example.com/sa-mon.htmlがもと
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo apachectl configtest
+Syntax OK
+```
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo systemctl reload httpd
+```
+※インバウンドルールとアウトバウンドルールに相手のICMTにIPv4にプライベートIDを入れる
+
+## 7.自分のサーバーを許可して相手のサーバーを拒否
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo vi /etc/httpd/conf/httpd.conf
+```
+```text
+中の一番下に入力
+〈Directory /home/saba〉
+Require ip 許可したい人のグローバルIP
+Require no ip 許可したくない人のグローバルIP
+〈/Directory〉
+```
+リスタートして終了
+```bash
+[ec2-user@ip-172-31-29-201 ~]$ sudo systemctl restart httpd
+```
+
+
+## 差分の表示
+```bash
+natsu515@otuna-515:~$ vi file_ori
+natsu515@otuna-515:~$ cp -a file_ori file_ori2
+natsu515@otuna-515:~$ vi file_ori2
+natsu515@otuna-515:~$ sudo diff file_ori file_ori2
+```
+```text
+1c1
+< 今日は渡ちゃんと飲みに行くよ
+---
+> 今日は渡ちゃんと野呂ちゃんと飲みに行くよ
+2a3
+> ０次会楽しんでてくれ！！！
+```
+
