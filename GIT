@@ -260,3 +260,83 @@ git branch -d testing
 git branch
 ```
 
+## ２人でリモートリポジトリ上の同一ファイルを編集した場合
+### コンフリクトの編集
+---
+#### 1.fetch→merge
+①リモートの最新を取得
+```bash
+git fetch origin
+```
+~~~
+origin/main の最新コミットをローカルに持ってくるだけ
+
+Bさんのブランチの作業は消えない
+~~~
+②リモートの main をマージ
+```bash
+git merge origin/main
+```
+~~~
+コンフリクトがなければ自動で統合
+コンフリクトがある場合は Git が通知
+
+Auto-merging first.txt
+CONFLICT (content): Merge conflict in first.txt
+Automatic merge failed; fix conflicts and then commit the result
+~~~
+③コンフリクト解消
+```bash
+vi first.txt
+```
+~~~
+<<<<<<<, =======, >>>>>>> の部分を見ながら修正
+
+自分の変更とリモートの変更を統合する
+修正後はマーカーを消す
+修正したら保存して終了
+~~~
+④修正をステージして commit
+```bash
+git add first.txt      # 修正したファイルをステージ
+git commit -m "Resolve merge conflict between my branch and origin/main"
+```
+⑤リモートに push
+```
+git push origin ブランチ名
+```
+
+#### 2. pull
+①pull で一発
+```bash
+git pull origin main
+```
+~~~
+内部で fetch + merge が自動で行われる
+コンフリクトがある場合は通知される
+
+Auto-merging first.txt
+CONFLICT (content): Merge conflict in first.txt
+Automatic merge failed; fix conflicts and then commit the result
+
+コンフリクトがなければそのまま merge 完了
+~~~
+② コンフリクト解消
+```bash
+vi first.txt
+```
+~~~
+<<<<<<<, =======, >>>>>>> のマーカーを見て修正
+
+保存して閉じる
+~~~
+③ 修正をステージして commit
+```bash
+git add first.txt
+git commit -m "Resolve merge conflict"
+```
+
+④ リモートに push
+```bash
+git push origin B_branch
+```
