@@ -1,0 +1,169 @@
+# WEBサーバでの作業
+## 1. 1台⽬のインスタンスを起動
+①分かりやすいようにホストネームやタブの⾊を変更（以後2台⽬3台⽬の⼿順には省略）
+```bash
+hostnamectl hostname webserver など
+```
+②apacheのインストールおよび起動
+```bash
+dnf update -y
+dnf install httpd -y
+systemctl start httpd
+systemctl status httpd
+```
+
+③apacheの起動確認
+~~~
+ブラウザにてhttp://webサーバのプライベートIPアドレスを検索
+→「It works!」の表⽰を確認。
+~~~
+## 2. php-fpmをダウンロード（/etc/httpd/conf.d配下にphp.confを追加するため）
+①phpインストール
+```bash
+dnf install php-fpm -y
+```
+②php.confファイルの修正 
+```bash
+vi /etc/httpd/conf.d/php.conf
+```
+~~~
+<FilesMatch \.(php|phar)$>
+SetHandler "proxy:fcgi://xxx.xxx.xxx.xxx(APサーバーのプライベートIP)"
+</FilesMatch>
+※proxy:後のunix~まで削除しないと、WEBサーバ内のphpが反応してしまうため注意が必要。
+~~~
+③httpdの再起動
+```bash
+systemctl restart httpd
+```
+④念のためphp-fpmを停⽌
+```bash
+systemctl stop php-fpm2
+```
+# APサーバでの作業
+## 1. phpのインストールおよび起動、mariadbサーバのインストール（sqlのコマンドを使⽤するため）
+①インストール
+```bash
+dnf install mariadb105-server php php-fpm php-mysqli php-json php php-devel -y
+```
+②起動
+```bash
+systemctl start php-fpm
+systemctl status php-fpm
+```
+## 2. /etc/php-fpm.d/www.conf内の修正
+①下記に変更
+~~~
+;listen = /run/php-fpm/www.sock
+→listen = xxx.xxx.xxx.xxx(APサーバーのプライベートIP):8000
+;listen.allowed_clients = 127.0.0.1
+→listen.allowed_clients = xxx.xxx.xxx.xxx(WebサーバーのプライベートIP)
+~~~
+②php-fpmの再起動
+```bash
+systemctl restart php-fpm
+```
+
+## 3. phpinfoを表⽰するために、phpinfo.phpファイルを作成（APサーバに配置する必要あり。WEBサーバには不要）
+```bash
+echo "<?php phpinfo(); ?>" > /var/www/html/phpinfo.php
+```
+## 4.apacheによりphpが表⽰できているか確認
+~~~
+ブラウザにてhttp://webサーバのプライベートIPアドレス/phpinfo.php を検索
+
+→phpinfoページの表⽰を確認。
+
+※セキュリティグループ（AP側）を下記に設定
+カスタムTCP
+ポート: 8000
+ソース: WebサーバのSG もしくは WebのプライベートIP
+~~~
+※外観をインストールするために必要
+```bash
+chown -R apache:apache /var/www/html/
+```
+
+# APサーバとDBサーバの接続
+## DBサーバでの作業
+①mariadbのインストールおよび起動と本番環境の準備
+```bash
+dnf update -y
+dnf install mariadb105-server -y
+systemctl start mariadb
+systemctl status mariadb
+```
+③mariadbの設定
+~~~
+※⾶ばしてもよい
+mysql_secure_installation
+~~~
+④sqlにrootユーザとしてログイン
+
+→ユーザとデータベースの作成および、権限の付与
+```bash
+mysql -u root -p
+````
+```text
+MariaDB [(none)]> CREATE USER 'wordpress-user'@'xxx.xxx.xxx.xxx(APサーバーのプライベート
+IP)' IDENTIFIED BY 'wordpress-password';
+MariaDB [(none)]> CREATE DATABASE `wordpress-db`;
+MariaDB [(none)]> GRANT ALL PRIVILEGES ON `wordpress-db`.* TO "wordpress-user"@"AP
+サーバーのプライベートIP";
+MariaDB [(none)]> FLUSH PRIVILEGES;
+※ 誤字やコマンド終了のセミコロンに注意。
+```
+
+## APサーバでの作業
+①Wordpressのダウンロードと解凍・バックアップの作成
+```bash
+cd /usr/local
+
+wget https://wordpress.org/latest.tar.gz
+tar -xzf latest.tar.gz
+
+cp wordpress/wp-config-sample.php wordpress/wp-config.php
+```
+②Wordpress配下を/var/www/html配下へ移動
+```bash
+mv wordpress/* /var/www/html/
+```
+③wp-config.phpの修正
+```bash
+vi /var/www/html/wp-config.php
+```
+~~~
+===変更箇所==========================
+define( 'DB_NAME', 'wordpress-db' );
+/** Database username */
+define( 'DB_USER', 'wordpress-user' );
+/** Database password */
+define( 'DB_PASSWORD', 'wordpress-password' );
+/** Database hostname */
+define( 'DB_HOST', 'xxx.xxx.xxx.xxx(DBサーバーのプライベートIP)' );
+~~~
+
+## APサーバとDBサーバが接続しているかを確認
+```bash
+mysql -u wordpress-user -h DBサーバのプライベートID -p wordpress-db
+```
+
+# ブラウザでのWordpressの表⽰準備
+## 1. WEBサーバ上での作業
+①Wordpressのダウンロードと解凍・バックアップの作成
+```bash
+cd /usr/local
+wget https://wordpress.org/latest.tar.gz
+tar -xzf latest.tar.gz
+cp wordpress/wp-config-sample.php wordpress/wp-config.php
+```
+②Wordpress配下を/var/www/html配下へ移動
+```bash
+mv wordpress/* /var/www/html/
+※WordpressはAPサーバとWEBサーバの両⽅のhtml配下に置く必要がある
+```
+③すべてのサーバを再起動
+~~~
+ブラウザにてhttp://WEBサーバのIPアドレスの検索 表⽰できていれば成功。
+~~~
+ユーザ︓wordpress-user パス︓wordpress-password
