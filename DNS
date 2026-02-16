@@ -1,0 +1,266 @@
+# DNSサーバーの構築
+## 1.BINDのインストール
+
+```bash
+[root@ ~]# dnf install bind
+```
+```text
+Amazon Linux 2023 Kernel Livepatch repository                                           244 kB/s |  30 kB     00:00
+Dependencies resolved.
+========================================================================================================================
+ Package                       Architecture       Version                                 Repository               Size
+========================================================================================================================
+Installing:
+ bind                          x86_64             32:9.18.33-1.amzn2023.0.4               amazonlinux             316 k
+Installing weak dependencies:
+ bind-dnssec-utils             x86_64             32:9.18.33-1.amzn2023.0.4               amazonlinux             145 k
+
+Transaction Summary
+========================================================================================================================
+Install  2 Packages
+```
+
+
+## 2.BIND（named）の起動
+①状態を確認(dead)ならOK
+```bash
+[root@i ~]# systemctl status named
+```
+```text
+○ named.service - Berkeley Internet Name Domain (DNS)
+     Loaded: loaded (/usr/lib/systemd/system/named.service; disabled; preset: disabled)
+     Active: inactive (dead)
+```
+
+②起動して状態確認(activeになってればOK)
+```bash
+[root@ ~]# systemctl start named
+[root@ ~]# systemctl status named
+```
+```text
+● named.service - Berkeley Internet Name Domain (DNS)
+     Loaded: loaded (/usr/lib/systemd/system/named.service; disabled; preset: disabled)
+     Active: active (running) since Wed 2026-01-21 01:50:07 UTC; 1s ago
+    Process: 25499 ExecStartPre=/bin/bash -c if [ ! "$DISABLE_ZONE_CHECKING" == "yes" ]; then /usr/bin/named-checkconf >
+    Process: 25501 ExecStart=/usr/sbin/named -u named -c ${NAMEDCONF} $OPTIONS (code=exited, status=0/SUCCESS)
+   Main PID: 25502 (named)
+      Tasks: 6 (limit: 1067)
+     Memory: 7.2M
+        CPU: 55ms
+     CGroup: /system.slice/named.service
+             └─25502 /usr/sbin/named -u named -c /etc/named.conf
+```
+
+③namedが動いているか確認
+```bash
+[root@ ~]# ps -ef | grep named
+```
+```text
+named      25502       1  0 01:50 ?        00:00:00 /usr/sbin/named -u named -c /etc/named.conf
+root       25567    1778  0 01:51 pts/1    00:00:00 grep --color=auto named
+```
+※ps = Process Status　
+  実行中のプログラムの状態を見るコマンド。
+
+
+④53番ポートを「待ち受け(LISTEN)」している通信があるか確認→ポート番号53を探す
+```bash
+[root@ ~]# netstat -ln | grep 53
+```
+```text
+tcp        0      0 127.0.0.1:53            0.0.0.0:*               LISTEN
+tcp        0      0 127.0.0.1:953           0.0.0.0:*               LISTEN
+tcp6       0      0 ::1:953                 :::*                    LISTEN
+tcp6       0      0 ::1:53                  :::*                    LISTEN
+udp        0      0 127.0.0.1:53            0.0.0.0:*
+udp        0      0 127.0.0.1:53            0.0.0.0:*
+udp6       0      0 ::1:53                  :::*
+udp6       0      0 ::1:53                  :::*
+```
+
+## 3.named基本設定ファイル
+①バックアップを取る
+```bash
+[root@ ~]# cp -a /etc/named.conf /etc/named.conf.0121
+```
+→cp -a /etc/named.conf{,.0121}でもOK
+```bash
+[root@ ~]# ls /etc/named.conf*
+```
+```text
+/etc/named.conf  /etc/named.conf.0121
+```
+②viして状態確認
+```bash
+[root@ ~]# vi /etc/named.conf
+```
+バックアップじゃないほうを編集する
+
+↓中はこれ
+```text
+options {
+        #listen-on port 53 { 127.0.0.1; };
+        #listen-on-v6 port 53 { ::1; };
+        directory       "/var/named";
+        dump-file       "/var/named/data/cache_dump.db";
+        statistics-file "/var/named/data/named_stats.txt";
+        memstatistics-file "/var/named/data/named_mem_stats.txt";
+        secroots-file   "/var/named/data/named.secroots";
+        recursing-file  "/var/named/data/named.recursing";
+        #allow-query     { localhost; };
+        allow-query     { any; };
+```
+※localからanyに変えるときもバックアップを取りたい
+yypでコピーして、localhostのほうをコメントアウトすると原文は残してanyに更新できる
+
+
+③構文チェック
+```bash
+[root@ ~]# named-checkconf
+[root@ ~]#
+```
+※あってれば何も出ない。何かあるとエラーメッセージが出るから修正する
+```text
+ex)/etc/named.conf:20: unknown options 'aaallow-query'
+   →このファイルの20行目が変！
+```
+
+※named-の後ろは種類によって違うのが出る
+
+・named-checkconf　　　設定ファイル
+
+・named-checkzone　　　ゾーンファイル
+
+・named-compilezone　　ゾーンをコンパイル(検証∔変換)
+
+・named-journalprint　 ジャーナルファイル
+
+
+④再起動してできたか確認
+```bash
+[root@ ~]# systemctl restart named
+[root@ ~]# netstat -ln | grep 53
+```
+```text
+tcp        0      0 127.0.0.1:53            0.0.0.0:*               LISTEN
+tcp        0      0 127.0.0.1:953           0.0.0.0:*               LISTEN
+tcp        0      0 172.31.24.152:53        0.0.0.0:*               LISTEN
+tcp6       0      0 ::1:953                 :::*                    LISTEN
+tcp6       0      0 ::1:53                  :::*                    LISTEN
+tcp6       0      0 fe80::f7:7aff:fe95:9:53 :::*                    LISTEN
+udp        0      0 172.31.24.152:53        0.0.0.0:*
+udp        0      0 172.31.24.152:53        0.0.0.0:*
+udp        0      0 127.0.0.1:53            0.0.0.0:*
+udp        0      0 127.0.0.1:53            0.0.0.0:*
+udp6       0      0 ::1:53                  :::*
+udp6       0      0 ::1:53                  :::*
+udp6       0      0 fe80::f7:7aff:fe95:9:53 :::*
+udp6       0      0 fe80::f7:7aff:fe95:9:53 :::*
+```
+↑さっきはなかった172とかが出てきたら大丈夫。anyになっている。
+
+※netstat=ネットワーク(network)の状態(statistics)を見るコマンド。通信の入口が開いているかの確認に使う
+
+
+
+## 3.ゾーンデータベースファイルの読み込み設定
+前提条件
+
+・ゾーン名：hogehoge.com
+
+・ゾーンデータベースファイルパス：/var/named/hogehoge.com.zone
+
+①/etc/named.confに下記を記載
+```bash
+[root@ ~]# vi /etc/named.conf
+```
+```text
+zone "hogehoge.com" IN{
+    type master;
+     file "/var/named/hogehoge.com.zone";
+};    
+```
+```bash
+[root@ ~]# named-checkconf
+```
+
+## 4.正引きゾーンデータベースファイルの作成
+①/var/named/hogehoge.com.zoneに下記を書き込む
+```bash
+[root@ ~]# vi /var/named/hogehoge.com.zone
+```
+```text
+$TTL 3600
+@ IN SOA ns.hogehoge.com. test.gmail.com. (
+20220401 ; serial
+3600 ; refresh
+3600 ; retry
+3600 ; expire
+3600 ) ; minimum
+  IN NS ns.hogehoge.com.
+ns IN A プライベートID
+www IN A プライベートIP
+```
+
+②あっているか確認
+```bash
+[root@ ~]# named-checkzone hogehoge.com /var/named/hogehoge.com.zone
+```
+```text
+zone hogehoge.com/IN: loaded serial 20220401
+OK
+```
+※OKだったら大丈夫
+
+ 間違えるとこの表示
+```text
+dns_rdata_fromtext: /var/named/hogehoge.com.zone:7: near 'IN': extra input text
+zone hogehoge.com/IN: loading from master file /var/named/hogehoge.com.zone failed: extra input text
+zone hogehoge.com/IN: not loaded due to errors.
+→7行目の”IN”の近くがおかしい！って言ってる
+```
+
+③再起動
+```bash
+[root@ ~]# systemctl restart named
+```
+
+## 4.ゾーンの確認手順
+①digコマンドで名前解決テスト
+```bash
+[root@ ~]# dig @localhost www.hogehoge.com
+```
+```text
+; <<>> DiG 9.18.33 <<>> @localhost www.hogehoge.com
+; (1 server found)
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 32808
+;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 1232
+; COOKIE: 875ee9dda9e2f36e01000000697046b9669058464bffe7f0 (good)
+;; QUESTION SECTION:
+;www.hogehoge.com.              IN      A
+
+;; ANSWER SECTION:
+www.hogehoge.com.       3600    IN      A       172.31.24.152
+
+;; Query time: 0 msec
+;; SERVER: 127.0.0.1#53(localhost) (UDP)
+;; WHEN: Wed Jan 21 03:23:37 UTC 2026
+;; MSG SIZE  rcvd: 89
+```
+
+※「ANSWER : 1」になっているかと「;; ANSWER SECTION:」の内容を確認すればOK
+
+　下記の内容でも確認できる
+```bash
+dig @172.31.24.152 www.hogehoge.com
+dig @172.31.24.152 ns.hogehoge.com
+dig @localhost ns.hogehoge.com
+```
+
+
+
