@@ -1,0 +1,869 @@
+# メールサーバーの構築
+## 1. Postfixのインストール
+①ダウンロード
+```bash
+[ec2-user@ ~]$ sudo su -
+[root@ ~]# dnf install postfix
+```
+②Postfixを起動→確認
+```bash
+[root@ ~]# systemctl start postfix
+```
+```bash
+[root@ ~]# ps -ef | grep postfix
+```
+```text
+root       26198       1  0 01:23 ?        00:00:00 /usr/libexec/postfix/master -w
+postfix    26199   26198  0 01:23 ?        00:00:00 pickup -l -t unix -u
+postfix    26200   26198  0 01:23 ?        00:00:00 qmgr -l -t unix -u
+root       26202    1752  0 01:23 pts/1    00:00:00 grep --color=auto postfix
+```
+※なんか出ていればpostfixに関するものは起動しているからOK
+```bash
+[root@ ~]# netstat -ln | grep 25
+```
+```text
+tcp        0      0 127.0.0.1:25            0.0.0.0:*               LISTEN
+unix  2      [ ACC ]     STREAM     LISTENING     17251    /run/user/1000/systemd/private
+```
+※tcpの25を開放しないとだめ
+　自分だけ送れる状態？
+
+③mail（メールを送信するためのコマンド）
+```bash
+[root@ ~]# dnf install mailx
+```
+
+## 2.Postfixの設定
+①/etc/postfix/main.cfのバックアップを取る
+```bash
+[root@ ~]# cp /etc/postfix/main.cf /etc/postfix/main.cf.`date "+%Y%m%d_%H%M%S"`.bak
+```
+※postfixの基本的な設定ファイル
+
+※「'」じゃなくて「バッククォーテーション」で表記すること。「`」だとコマンドになる。
+
+※date "+%Y%m%d_%H%M%S" →「年月日_時分秒」"+%%"は固定で%%の間にYとか入れる。「_」を入れている部分が区切り目になるだけだから自由に見やすくしていい◎
+```bash
+[root@ ~]# ls /etc/postfix/main.cf*
+```
+```text
+ /etc/postfix/main.cf                      '/etc/postfix/main.cf.date "+%Y%m%d_%H%M%S".bak'
+ /etc/postfix/main.cf.20260123_013937.bak   /etc/postfix/main.cf.proto
+```
+
+②コメントアウト行を消す
+```bash
+[root@i ~]# grep -v ^# /etc/postfix/main.cf | cat -s > /tmp/main.cf
+```
+③上書きする
+```bash
+[root@ ~]# cp /tmp/main.cf /etc/postfix/main.cf
+```
+```text
+cp: overwrite '/etc/postfix/main.cf'? y
+```
+↑上書きしていいの？って聞いてるから「y」
+
+④postfixの設定ファイルを編集→再起動
+※ないものは追記して、あるものは編集する
+```dash
+[root@ ~]# vi /etc/postfix/main.cf
+```
+```text
+inet_interface = all
+mydestination = $mydomain, $myhostname
+↑これらは編集
+↓これらは追記
+myhostname = mail.orihara.local
+mydomain = orihara.local
+myorigin = $myhostname
+mynetworks = 172.31.0.0/16, 127.0.0.1
+→自分のインスタンスのプライベートIPの上２つ.0.0/16
+mail_spool_directory = /var/spool/mail/
+→後ろに「/」忘れないこと！メールが届かなくなる！
+```
+```bash
+[root@ ~]# systemctl restart postfix
+```
+## 3.DNSサーバの設定
+DNSの手順書参照(3は飛ばすこと)
+
+①/etc/named.confにコメントアウト作業で下記の追記を忘れないこと！
+```bash
+[root@ip-172-31-17-123 ~]# vi /etc/named.conf
+```
+```text
+zone "orihara.local" IN {
+     type master;
+     file "/var/named/orihara.local.zone";
+};
+```
+※この後再起動しないこと！正引きゾーンデータベースファイルを作成しないとエラーになる
+
+### 正引きゾーンデータベースファイルの作成
+①/var/named/orihara.local.zoneに下記を書き込んで確認する
+```bash
+[root@ ~]# vi /var/named/orihara.local.zone
+```
+```text
+$TTL 3600
+@ IN SOA ns.orihara.local. test.gmail.com. (
+20210401 ; serial
+3600 ; refresh
+3600 ; retry
+3600 ; expire
+3600 ) ; minimum
+
+
+  IN NS ns.orihara.local.
+  IN MX 10 mail.orihara.local.（この.大事！！！）
+ns IN A 172.31.17.123
+mail IN A 172.31.17.123
+```
+```bash
+[root@ ~]# named-checkzone orihara.local /var/named/orihara.local.zone
+```
+```text
+zone orihara.local/IN: loaded serial 20210401
+OK
+```
+②再起動
+```bash
+[root@ ~]# systemctl restart named
+```
+③/etc/systemd/resolved.confを編集
+```bash
+[root@ip-172-31-17-123 ~]# vi /etc/systemd/resolved.conf
+```
+```text
+DNS=BIND側のプライベートIP
+```
+### 自分の名前解決テストする
+※dig @localhost(localどこに問い合わせるか) mail.orihara.(これを)
+```bash
+[root@ ~]# dig @localhost mail.orihara.local
+```
+```text
+; <<>> DiG 9.18.33 <<>> @localhost mail.orihara.local
+; (1 server found)
+;; global options: +cmd
+;; Got answer:
+;; WARNING: .local is reserved for Multicast DNS
+;; You are currently testing what happens when an mDNS query is leaked to DNS
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 35778
+;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 1232
+; COOKIE: 73d23828fbb31a31010000006972e4f9076869e3fff150c3 (good)
+;; QUESTION SECTION:
+;mail.orihara.local.            IN      A
+
+;; ANSWER SECTION:
+mail.orihara.local.     3600    IN      A       172.31.17.123
+
+;; Query time: 0 msec
+;; SERVER: 127.0.0.1#53(localhost) (UDP)
+;; WHEN: Fri Jan 23 03:03:21 UTC 2026
+;; MSG SIZE  rcvd: 91
+```
+※ANSWER SECTIONとANSWER : 1 が出ていれば大丈夫◎
+```text
+間違うとこれが出る
+; <<>> DiG 9.18.33 <<>> @localhost mail.orihara.local
+; (1 server found)
+;; global options: +cmd
+;; Got answer:
+;; WARNING: .local is reserved for Multicast DNS
+;; You are currently testing what happens when an mDNS query is leaked to DNS
+;; ->>HEADER<<- opcode: QUERY, status: NXDOMAIN, id: 65365
+;; flags: qr rd ra ad; QUERY: 1, ANSWER: 0, AUTHORITY: 1, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 1232
+; COOKIE: 9eeefb91fa58bb9b010000006972e3f76cf15b61b8cd7d0e (good)
+;; QUESTION SECTION:
+;mail.orihara.local.            IN      A
+
+;; AUTHORITY SECTION:
+.                       10800   IN      SOA     a.root-servers.net. nstld.verisign-grs.com. 2026012203 1800 900 604800 86400
+
+;; Query time: 900 msec
+;; SERVER: 127.0.0.1#53(localhost) (UDP)
+;; WHEN: Fri Jan 23 02:59:03 UTC 2026
+;; MSG SIZE  rcvd: 150
+```
+↑ANSWER SECTIONが出てこないし、ANSWER : 0になっている
+
+### 構築したメールサーバーの問い合わせ先DNSサーバーの向き先を変える
+```text
+前提として、@localhostを記載しないと世界のどこかに保存されているものを探しに行く
+
+書かなくても自分の名前解決ができるように、宛先がなかったらどこに問い合わせればいいのか設定する。
+
+なぜ？
+メールを送るときに@で指定できないから！
+```
+①/etc/systemd/resolved.confのバックアップを取る
+```bash
+[root@ ~]# cp /etc/systemd/resolved.conf /etc/systemd/resolved.conf.`date "+%Y%m%d_%H%M%S"`.bak
+```
+②/etc/systemd/resolved.confを変更する
+```bash
+[root@ ~]# vi /etc/systemd/resolved.conf
+```
+以下の「DNS=」を変更する(自分のプライベートIP)
+```text
+[Resolve]
+# Some examples of DNS servers which may be used for DNS= and FallbackDNS=:
+# Cloudflare: 1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 2606:4700:4700::1111#cloudflare-dns.com 2606:4700:4700::1001#cloudflare-dns.com
+# Google:     8.8.8.8#dns.google 8.8.4.4#dns.google 2001:4860:4860::8888#dns.google 2001:4860:4860::8844#dns.google
+# Quad9:      9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net 2620:fe::fe#dns.quad9.net 2620:fe::9#dns.quad9.net
+DNS=172.31.17.123
+```
+③リスタートして、digに@を入れないでもANSWERが返ってくるか確認する
+```bash
+[root@ ~]# systemctl restart systemd-resolved.service
+[root@ ~]# dig  mail.orihara.local
+```
+```text
+; <<>> DiG 9.18.33 <<>> mail.orihara.local
+;; global options: +cmd
+;; Got answer:
+;; WARNING: .local is reserved for Multicast DNS
+;; You are currently testing what happens when an mDNS query is leaked to DNS
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 5802
+;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 1232
+; COOKIE: 1cc7c45f25018f06010000006972ec326ca97910a1e99f73 (good)
+;; QUESTION SECTION:
+;mail.orihara.local.            IN      A
+
+;; ANSWER SECTION:
+mail.orihara.local.     3600    IN      A       172.31.17.123
+
+;; Query time: 0 msec
+;; SERVER: 172.31.17.123#53(172.31.17.123) (UDP)
+;; WHEN: Fri Jan 23 03:34:10 UTC 2026
+;; MSG SIZE  rcvd: 91
+```
+
+## 4．自サーバへメールの送信
+①ログの有効化
+```bash
+[root@ ~]# dnf install rsyslog
+```
+```text
+Last metadata expiration check: 3:25:23 ago on Fri Jan 23 01:22:22 2026.
+Dependencies resolved.
+======================================================================================================================================
+ Package                           Architecture           Version                                   Repository                   Size
+======================================================================================================================================
+Installing:
+ rsyslog                           x86_64                 8.2204.0-3.amzn2023.0.4                   amazonlinux                 784 k
+Installing dependencies:
+ libestr                           x86_64                 0.1.11-1.amzn2023.0.2                     amazonlinux                  26 k
+ libfastjson                       x86_64                 0.99.9-1.amzn2023.0.3                     amazonlinux                  39 k
+Installing weak dependencies:
+ rsyslog-logrotate                 x86_64                 8.2204.0-3.amzn2023.0.4                   amazonlinux                  10 k
+
+Transaction Summary
+======================================================================================================================================
+Install  4 Packages
+```
+②rsyslogの再起動
+```bash
+[root@ ~]# systemctl start rsyslog.service
+[root@ ~]# systemctl status rsyslog.service
+```
+```text
+● rsyslog.service - System Logging Service
+     Loaded: loaded (/usr/lib/systemd/system/rsyslog.service; enabled; preset: enabled)
+     Active: active (running) since Fri 2026-01-23 04:48:28 UTC; 6s ago
+       Docs: man:rsyslogd(8)
+             https://www.rsyslog.com/doc/
+   Main PID: 32775 (rsyslogd)
+      Tasks: 3 (limit: 1067)
+     Memory: 1.6M
+        CPU: 272ms
+     CGroup: /system.slice/rsyslog.service
+             └─32775 /usr/sbin/rsyslogd -n
+```
+③自分にメールを送ってみる
+```bash
+[root@ ~]# mail -s hello root@orihara.local
+Hello　（内容）
+.　　　（おしまい）
+```
+下に「EOT」で出たらOK◎
+
+間違えるとこう。件名は〈○○〉じゃなくて○○って打つ
+```text
+[root@ ~]# mail -s <enshu> root@orihara.local
+-bash: enshu: No such file or directory
+```
+④logを確認する
+```bash
+[root@ ~]# less /var/log/maillog
+```
+件数が増えてきたら「tail」でやるといいかも
+```text
+・
+・
+・
+Jan 23 04:51:49 ip-172-31-17-123 postfix/qmgr[28497]: 3818113DA86: from=<root@mail.orihara.local>, size=437, nrcpt=1 (queue active)
+Jan 23 04:51:49 ip-172-31-17-123 postfix/local[32842]: 3818113DA86: to=<root@orihara.local>, relay=local, delay=0.03, delays=0.02/0.01/0/0, dsn=2.0.0, status=sent (delivered to maildir)
+```
+※最後２行あたりに「from」「to」「status=sent」になってたらOK◎　送信が完了しているってこと！
+
+⑤メールが受信できているか確認する
+```bash
+[root@3 ~]# mail
+```
+```text
+Heirloom Mail version 12.5 7/5/10.  Type ? for help.
+"/var/spool/mail/root": 1 message 1 new
+>N  1 root                  Fri Jan 23 04:51  17/531   "hello"
+&
+```
+※「1 message 1 new」があれば受信できている
+```text
+& 1（打ってenterキー）
+Message  1:
+From root@mail.orihara.local Fri Jan 23 04:51:49 2026
+Return-Path: <root@mail.orihara.local>
+X-Original-To: root@orihara.local
+Delivered-To: root@orihara.local
+Date: Fri, 23 Jan 2026 04:51:49 +0000
+To: root@orihara.local
+Subject: hello
+User-Agent: Heirloom mailx 12.5 7/5/10
+Content-Type: text/plain; charset=us-ascii
+From: root <root@mail.orihara.local>
+Status: R
+
+Hello
+
+&
+```
+※「q」エンターキーで元の画面に戻れる
+
+## 5. 他サーバーへのメールの送信
+①/etc/systemd/resolved.confを編集
+```bash
+[root@ip-172-31-17-123 ~]# vi /etc/systemd/resolved.conf
+```
+```text
+DNS=相手のプライベートIP
+```
+②相手がつながったか名前解決テストで確認
+```bash
+[root@ip-172-31-17-123 ~]# dig  mail.origuchi.local
+```
+```text
+[root@ip-172-31-17-123 ~]# dig  mail.origuchi.local
+
+; <<>> DiG 9.18.33 <<>> mail.origuchi.local
+;; global options: +cmd
+;; Got answer:
+;; WARNING: .local is reserved for Multicast DNS
+;; You are currently testing what happens when an mDNS query is leaked to DNS
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 18992
+;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 1232
+; COOKIE: 32195ad1f2d649530100000069730c73e8c353ac1a81c03e (good)
+;; QUESTION SECTION:
+;mail.origuchi.local.           IN      A
+
+;; ANSWER SECTION:
+mail.origuchi.local.    3600    IN      A       172.31.16.163
+
+;; Query time: 10 msec
+;; SERVER: 172.31.16.163#53(172.31.16.163) (UDP)
+;; WHEN: Fri Jan 23 05:51:47 UTC 2026
+;; MSG SIZE  rcvd: 92
+```
+これで今回送れなかった理由分かった
+```bash
+[root@ip-172-31-17-123 ~]# dig  origuchi.local mx
+```
+```text
+; <<>> DiG 9.18.33 <<>> origuchi.local mx
+;; global options: +cmd
+;; Got answer:
+;; WARNING: .local is reserved for Multicast DNS
+;; You are currently testing what happens when an mDNS query is leaked to DNS
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 740
+;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 1232
+; COOKIE: 0206bf2da4bc41690100000069730c93e4871d315d8b76e4 (good)
+;; QUESTION SECTION:
+;origuchi.local.                        IN      MX
+
+;; ANSWER SECTION:
+origuchi.local.         3600    IN      MX      10 mail.origuchi.local.origuchi.local.
+
+;; Query time: 0 msec
+;; SERVER: 172.31.16.163#53(172.31.16.163) (UDP)
+;; WHEN: Fri Jan 23 05:52:19 UTC 2026
+;; MSG SIZE  rcvd: 121
+```
+ゾーンデータベースファイルのMXに「.」がなかったから届かなかった
+
+②繋がってたらメール送る
+```bash
+[root@ip-172-31-17-123 ~]# mail -s hello root@origuchi.local
+dekita?
+.
+EOT
+```
+③ログの確認
+```bash
+[root@ip-172-31-17-123 ~]# less /var/log/maillog
+```
+```text
+Jan 23 05:53:58 ip-172-31-17-123 postfix/qmgr[34673]: DE23313CEBE: from=<root@mail.orihara.local>, size=440, nrcpt=1 (queue active)
+Jan 23 05:53:58 ip-172-31-17-123 postfix/smtp[35013]: warning: run-time library vs. compile-time header version mismatch: OpenSSL 3.2.0 may not be compatible with OpenSSL 3.0.0
+Jan 23 05:53:58 ip-172-31-17-123 postfix/smtp[35013]: DE23313CEBE: to=<root@origuchi.local>, relay=mail.origuchi.local[172.31.16.163]:25, delay=0.08, delays=0.02/0.02/0.03/0.01, dsn=2.0.0, status=sent (250 2.0.0 Ok: queued as EF24E13E32B)
+Jan 23 05:53:58 ip-172-31-17-123 postfix/qmgr[34673]: 
+```
+
+これだめ
+```text
+Jan 23 05:42:35 ip-172-31-17-123 postfix/smtp[34679]: 340D013CEB8: to=<root@origuchi.local>, relay=none, delay=0.06, delays=0.02/0.05/0/0, dsn=5.4.4, status=bounced (Host or domain name not found. Name service error for name=mail.origuchi.local.origuchi.local type=AAAA: Host not found)
+Jan 23 05:42:35 ip-172-31-17-123 postfix/cleanup[34677]: 4380013DE2C: message-id=<20260123054235.4380013DE2C@mail.orihara.local>
+Jan 23 05:42:35 ip-172-31-17-123 postfix/bounce[34681]: 340D013CEB8: sender non-delivery notification: 4380013DE2C
+Jan 23 05:42:35 ip-172-31-17-123 postfix/qmgr[34673]: 4380013DE2C: from=<>, size=2555, nrcpt=1 (queue active)
+Jan 23 05:42:35 ip-172-31-17-123 postfix/qmgr[34673]: 340D013CEB8: removed
+Jan 23 05:42:35 ip-172-31-17-123 postfix/local[34682]: 4380013DE2C: to=<root@mail.orihara.local>, relay=local, delay=0.01, delays=0/0.01/0/0, dsn=2.0.0, status=sent (delivered to maildir)
+```
+※送ったけど相手に届かなくて戻ってきたよって意味
+
+④メールの確認
+```bash
+[root@ip-172-31-17-123 ~]# mail
+```
+```text
+Heirloom Mail version 12.5 7/5/10.  Type ? for help.
+"/var/spool/mail/root": 9 messages 7 unread
+    1 root                  Fri Jan 23 04:51  17/531   "hello"
+>U  2 Mail Delivery System  Fri Jan 23 05:13  76/2579  "Undelivered Mail Returned to Sender"
+ U  3 Mail Delivery System  Fri Jan 23 05:17  76/2579  "Undelivered Mail Returned to Sender"
+    4 root                  Fri Jan 23 05:28  20/724   "test"
+ U  5 Mail Delivery System  Fri Jan 23 05:28  76/2579  "Undelivered Mail Returned to Sender"
+ U  6 root                  Fri Jan 23 05:31  20/723   "test"
+ U  7 root                  Fri Jan 23 05:31  20/724   "test"
+ U  8 Mail Delivery System  Fri Jan 23 05:35  76/2578  "Undelivered Mail Returned to Sender"
+ U  9 Mail Delivery System  Fri Jan 23 05:42  76/2577  "Undelivered Mail Returned to Sender"
+& 4
+Message  4:
+From root@mail.origuchi.local Fri Jan 23 05:28:18 2026
+Return-Path: <root@mail.origuchi.local>
+X-Original-To: root@orihara.local
+Delivered-To: root@orihara.local
+Date: Fri, 23 Jan 2026 05:28:17 +0000
+To: root@orihara.local
+Subject: test
+User-Agent: Heirloom mailx 12.5 7/5/10
+Content-Type: text/plain; charset=us-ascii
+From: root <root@mail.origuchi.local>
+Status: RO
+
+testdesu!
+
+&
+```
+
+## 6.メールアドレスの作成
+①新しくOSユーザーを追加する
+```bash
+[root@ip-172-31-17-123 ~]# useradd ringo -g mail -M -K MAIL_DIR=/dev/null -s /sbin/nologin
+```
+```text
+Creating mailbox file: Not a directory
+```
+※「Not a directory」でも大丈夫◎
+
+②新しくパスワードを作る
+```bash
+[root@ip-172-31-17-123 ~]# passwd ringo
+```
+```text
+Changing password for user ringo.
+New password:
+BAD PASSWORD: The password is shorter than 8 characters
+Retype new password:
+passwd: all authentication tokens updated successfully.
+```
+※パスワード短いよ？大丈夫？って言われてるだけ
+
+③メールを送る
+```bash
+[root@ip-172-31-17-123 ~]# mail -s yakitai ringo@orihara.local
+```
+```text
+oishiiyone
+.
+EOT
+```
+```bash
+[root@ip-172-31-17-123 ~]# less /var/log/maillog
+```
+
+## 7. 新しいユーザーに送ったメールの確認
+①dovelopのインストール
+```bash
+[root@ip-172-31-17-123 ~]# dnf install dovecot
+```
+```bash
+Last metadata expiration check: 5:09:54 ago on Fri Jan 23 01:22:22 2026.
+Dependencies resolved.
+======================================================================================================================================
+ Package                      Architecture             Version                                    Repository                     Size
+======================================================================================================================================
+Installing:
+ dovecot                      x86_64                   1:2.3.20-1.amzn2023.0.2                    amazonlinux                   4.8 M
+Installing dependencies:
+ libstemmer                   x86_64                   0-16.585svn.amzn2023.0.2                   amazonlinux                    84 k
+
+Transaction Summary
+======================================================================================================================================
+Install  2 Packages
+```
+②/etc/dovecot/dovecot.confのバックアップを取る
+```bash
+[root@ip-172-31-17-123 ~]# cp /etc/dovecot/dovecot.conf /etc/dovecot/dovecot.conf.`date "+%Y%m%d_%H%M%S"`.bak
+[root@ip-172-31-17-123 ~]# ls /etc/dovecot/dovecot.conf*
+/etc/dovecot/dovecot.conf  /etc/dovecot/dovecot.conf.20260123_063313.bak
+```
+③/etc/dovecot/dovecot.confを編集
+```bash
+[root@ip-172-31-17-123 ~]# vi /etc/dovecot/dovecot.conf
+```
+```text
+# Protocols we want to be serving.
+protocols = pop3
+.
+.
+.
+
+mail_location = maildir:/var/spool/mail/%u/
+↑最後に追記
+```
+※Maildir形式とする。セキュリティレベルを下げるから実務で設定することは少ない。
+
+③/etc/dovecot/conf.d/10-ssl.confのバックアップを取る
+```bash
+[root@ip-172-31-17-123 ~]# cp /etc/dovecot/conf.d/10-ssl.conf /etc/dovecot/conf.d/10-ssl.conf.`date "+%Y%m%d_%H%M%S"`.bak
+[root@ip-172-31-17-123 ~]# ls /etc/dovecot/conf.d/10-ssl.conf*
+/etc/dovecot/conf.d/10-ssl.conf  /etc/dovecot/conf.d/10-ssl.conf.20260123_064000.bak
+```
+④編集
+```bash
+[root@ip-172-31-17-123 ~]# vi /etc/dovecot/conf.d/10-ssl.conf
+```
+```text
+# SSL/TLS support: yes, no, required. <doc/wiki/SSL.txt>
+# disable plain pop3 and imap, allowed are only pop3+TLS, pop3s, imap+TLS and imaps
+# plain imap and pop3 are still allowed for local connections
+#ssl = required
+↑コメントアウト
+
+##
+## Authentication processes
+##
+```
+⑤/etc/dovecot/conf.d/10-auth.confのバックアップを取る
+```bash
+[root@ip-172-31-17-123 ~]# cp /etc/dovecot/conf.d/10-auth.conf /etc/dovecot/conf.d/10-auth.conf.`date "+%Y%m%d_%H%M%S"`.bak
+[root@ip-172-31-17-123 ~]# ls /etc/dovecot/conf.d/10-auth.conf*
+/etc/dovecot/conf.d/10-auth.conf  /etc/dovecot/conf.d/10-auth.conf.20260123_064259.bak
+```
+⑥編集
+```bash
+[root@ip-172-31-17-123 ~]# vi /etc/dovecot/conf.d/10-auth.conf
+```
+```text
+# Disable LOGIN command and all other plaintext authentications unless
+# SSL/TLS is used (LOGINDISABLED capability). Note that if the remote IP
+# matches the local IP (ie. you're connecting from the same computer), the
+# connection is considered secure and plaintext authentication is allowed.
+# See also ssl=required setting.
+disable_plaintext_auth = no
+↑「yes」から「no」へ
+```
+⑦再起動して自動起動設定する
+```bash
+[root@ip-172-31-17-123 ~]# systemctl start dovecot
+[root@ip-172-31-17-123 ~]# systemctl enable dovecot
+```
+```text
+Created symlink /etc/systemd/system/multi-user.target.wants/dovecot.service → /usr/lib/systemd/system/dovecot.service.
+```
+⑧状態確認
+```bash
+[root@ip-172-31-17-123 ~]# systemctl status dovecot
+```
+```text
+● dovecot.service - Dovecot IMAP/POP3 email server
+     Loaded: loaded (/usr/lib/systemd/system/dovecot.service; enabled; preset: disabled)
+     Active: active (running) since Fri 2026-01-23 06:48:58 UTC; 19s ago
+       Docs: man:dovecot(1)
+             https://doc.dovecot.org/
+   Main PID: 37158 (dovecot)
+     Status: "v2.3.20 (80a5ac675d) running"
+      Tasks: 4 (limit: 1067)
+     Memory: 5.0M
+        CPU: 39ms
+     CGroup: /system.slice/dovecot.service
+             ├─37158 /usr/sbin/dovecot -F
+             ├─37159 dovecot/anvil
+             ├─37160 dovecot/log
+             └─37161 dovecot/config
+```
+⑨ポート110が解放されているか確認
+```bash
+[root@ip-172-31-17-123 ~]# netstat -ln | grep 110
+```
+```text
+tcp        0      0 0.0.0.0:110             0.0.0.0:*               LISTEN
+tcp6       0      0 :::110                  :::*                    LISTEN
+unix  2      [ ACC ]     STREAM     LISTENING     69110    public/showq
+```
+### telentでの確認
+①telentの起動
+```bash
+[root@ip-172-31-17-123 ~]# telnet localhost 110
+```
+```text
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
++OK Dovecot ready.
+```
+自分で決めたユーザーにログイン
+```text
+user ringo
++OK
+pass 12345
++OK Logged in.
+```
+メールが届いているか確認して、reterで内容を確認する。
+```text
+list
++OK 1 messages:
+1 556
+.
+```
+```text
+reter 1
+-ERR Unknown command: reter
+retr 1
++OK 556 octets
+Return-Path: <root@mail.orihara.local>
+X-Original-To: ringo@orihara.local
+Delivered-To: ringo@orihara.local
+Received: by mail.orihara.local (Postfix, from userid 0)
+        id 8A4E113CEB8; Fri, 23 Jan 2026 06:26:05 +0000 (UTC)
+Date: Fri, 23 Jan 2026 06:26:05 +0000
+To: ringo@orihara.local
+Subject: yakitai
+User-Agent: Heirloom mailx 12.5 7/5/10
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260123062605.8A4E113CEB8@mail.orihara.local>
+From: root <root@mail.orihara.local>
+
+oishiiyone
+.
+```
+
+### 実ファイルでの確認
+①/var/spool/mail/を確認して、自分が作ったユーザーファイルがあるか見る
+```bash
+[root@ip-172-31-17-123 ~]# ls /var/spool/mail/
+```
+```text
+ec2-user  ringo  root  rpc
+```
+②作ったユーザーファイルに移動して中身を見る
+```bash
+[root@ip-172-31-17-123 ~]# cd /var/spool/mail/ringo
+[root@ip-172-31-17-123 ringo]# ll
+```
+```text
+total 16
+drwx------. 2 ringo mail  93 Jan 23 06:58 cur
+-rw-------. 1 ringo mail 135 Jan 23 06:58 dovecot-uidlist
+-rw-------. 1 ringo mail   8 Jan 23 06:56 dovecot-uidvalidity
+-r--r--r--. 1 ringo mail   0 Jan 23 06:56 dovecot-uidvalidity.69731ba1
+-rw-------. 1 ringo mail 356 Jan 23 06:58 dovecot.index.log
+-rw-------. 1 ringo mail 384 Jan 23 06:56 dovecot.list.index.log
+drwx------. 2 ringo mail   6 Jan 23 06:56 new
+drwx------. 2 ringo mail   6 Jan 23 06:26 tmp
+```
+※newには新規メール、curには既読メールが入っている。新規を見たければnewの中のディレクトリを選んで中を見れば確認できる。
+
+※今回はtelentで確認済みだからcurを見る
+③1つ前のディレクトリに移動してからcurへ移動
+```bash
+[root@ip-172-31-17-123 new]# cd ..
+[root@ip-172-31-17-123 ringo]# cd cur
+```
+④中を確認し、ディレクトリ名を見つける
+```bash
+[root@ip-172-31-17-123 cur]# ls -l
+```
+```text
+total 4
+-rw-------. 1 ringo mail 540 Jan 23 06:26 1769149565.V10301I83eef0M579595.ip-172-31-17-123.us-west-2.compute.internal:2,S
+```
+⑤ディレクトリの中を見るとメールが確認できる
+```bash
+[root@ip-172-31-17-123 cur]# cat 1769149565.V10301I83eef0M579595.ip-172-31-17-123.us-west-2.compute.internal:2,S
+```
+```text
+Return-Path: <root@mail.orihara.local>
+X-Original-To: ringo@orihara.local
+Delivered-To: ringo@orihara.local
+Received: by mail.orihara.local (Postfix, from userid 0)
+        id 8A4E113CEB8; Fri, 23 Jan 2026 06:26:05 +0000 (UTC)
+Date: Fri, 23 Jan 2026 06:26:05 +0000
+To: ringo@orihara.local
+Subject: yakitai
+User-Agent: Heirloom mailx 12.5 7/5/10
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260123062605.8A4E113CEB8@mail.orihara.local>
+From: root <root@mail.orihara.local>
+
+oishiiyone
+```
+
+# 演習注意点
+## 新しくzoneを作る
+①/etc/named.confに新しく作るzoneを追記
+```text
+zone "orihara.local" IN {
+     type master;
+     file "/var/named/orihara.local.zone";
+};
+
+zone "onigiri.local" IN {
+     type master;
+     file "/var/named/onigiri.local.zone";
+};
+```
+※元のゾーンは消すと動かなくなるから消さないこと！
+
+②/etc/postfix/main.cfを新しいドメイン名に変更する
+```text
+myhostname = mail.onigiri.local
+mydomain = onigiri.local
+```
+※/etc/postfix/main.cfはDNS作ってから変えること
+
+③ゾーンファイルを新しく作る
+```bash
+[root@ip-172-31-17-123 ~]# vi /var/named/onigiri.local.zone
+```
+※書き方はいつもと同じ
+
+④DNSを自分のプライベートIPに変える
+```bash
+[root@ip-172-31-17-123 ~]# vi /etc/systemd/resolved.conf
+```
+⑤DNSを自分のプライベートIPに変えて自分にメールを送れるか確認
+```bash
+[root@ip-172-31-17-123 ~]# telnet localhost 110
+```
+```text
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
++OK Dovecot ready.
+user umeboshi
++OK
+pass 12345
++OK Logged in.
+list
++OK 1 messages:
+1 571
+.
+retr 1
++OK 571 octets
+Return-Path: <root@mail.onigiri.local>
+X-Original-To: umeboshi@onigiri.local
+Delivered-To: umeboshi@onigiri.local
+Received: by mail.onigiri.local (Postfix, from userid 0)
+        id 48D8B139A8D; Fri, 23 Jan 2026 07:52:11 +0000 (UTC)
+Date: Fri, 23 Jan 2026 07:52:11 +0000
+To: umeboshi@onigiri.local
+Subject: onakasuita
+User-Agent: Heirloom mailx 12.5 7/5/10
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260123075211.48D8B139A8D@mail.onigiri.local>
+From: root <root@mail.onigiri.local>
+
+atomousukosi!
+.
+```
+⑥DNSを相手のプライベートIPに変更してメールを送りあう
+
+⑨送れたかはlogを確認、届いたかはtelentで確認する
+```bash
+[root@ip-172-31-17-123 ~]# telnet localhost 110
+```
+```text
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
++OK Dovecot ready.
+user umeboshi
++OK
+pass 12345
++OK Logged in.
+list
++OK 2 messages:
+1 571
+2 753
+.
+retr 2
++OK 753 octets
+Return-Path: <root@mail.orikana.local>
+X-Original-To: umeboshi@onigiri.local
+Delivered-To: umeboshi@onigiri.local
+Received: from mail.orikana.local (unknown [172.31.16.163])
+        by mail.onigiri.local (Postfix) with ESMTPS id 99B5213DA8A
+        for <umeboshi@onigiri.local>; Fri, 23 Jan 2026 08:44:00 +0000 (UTC)
+Received: by mail.orikana.local (Postfix, from userid 0)
+        id 893BC13B0FA; Fri, 23 Jan 2026 08:44:00 +0000 (UTC)
+Date: Fri, 23 Jan 2026 08:44:00 +0000
+To: umeboshi@onigiri.local
+Subject: tsukaretanne
+User-Agent: Heirloom mailx 12.5 7/5/10
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260123084400.893BC13B0FA@mail.orikana.local>
+From: root <root@mail.orikana.local>
+
+
+.
+```
+
+# エラーが出た時に覚え解くこと
+### 「名前でコケたら named」
+### 「配送でコケたら postfix」
+### 「ログインでコケたら dovecot」
